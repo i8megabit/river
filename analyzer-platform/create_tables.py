@@ -12,7 +12,7 @@ sys.path.insert(0, '/app')
 async def create_tables():
     try:
         # Импортируем модели
-        from models.report import SystemReport, NetworkConnection, NetworkPort, RemoteHost, ChangeHistory, NetworkInterface, ReportFile
+        from models.report import Melt, NetworkConnection, NetworkPort, RemoteHost, ChangeHistory, NetworkInterface, ReportFile
         from core.database import create_database_engine, Base
         
         print("🔧 Создаем движок базы данных...")

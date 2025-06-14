@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_db
 from services.html_parser import parse_analyzer_html_file
-from models.report import SystemReport, NetworkConnection, NetworkPort, RemoteHost
+from models.report import Melt, NetworkConnection, NetworkPort, RemoteHost
 from pydantic import BaseModel
 from services.report_deduplication import generate_report_hash, find_duplicate_reports, create_hash_based_filename
 from sqlalchemy import select, desc, or_, func
@@ -22,7 +22,7 @@ from sqlalchemy.orm import selectinload
 api_router = APIRouter()
 
 # Pydantic модели для ответов
-class ReportSummary(BaseModel):
+class MeltSummary(BaseModel):
     id: str
     hostname: str
     filename: str
@@ -36,8 +36,8 @@ class ReportSummary(BaseModel):
     file_exists: Optional[bool] = True
     processing_status: Optional[str] = "processed"
     
-class ReportsList(BaseModel):
-    reports: List[ReportSummary]
+class MeltsList(BaseModel):
+    melts: List[MeltSummary]
     total: int
 
 def serialize_datetime_for_json(obj):
@@ -78,63 +78,63 @@ async def root():
     """Корневой endpoint API"""
     return {"message": "Анализатор API v1", "version": "v0.0.1"}
 
-@api_router.get("/reports", response_model=ReportsList)
-async def get_reports(db: AsyncSession = Depends(get_db)):
+@api_router.get("/reports", response_model=MeltsList)
+async def get_melts(db: AsyncSession = Depends(get_db)):
     """Получение списка всех отчетов из базы данных"""
     print(f"🔍 [DEBUG] Начинаем получение отчетов из БД...")
     
     try:
         # Получаем все отчеты из базы данных, сортируем по дате создания
         print(f"🔍 [DEBUG] Выполняем запрос к БД...")
-        stmt = select(SystemReport).order_by(desc(SystemReport.generated_at))
+        stmt = select(Melt).order_by(desc(Melt.generated_at))
         result = await db.execute(stmt)
-        reports = result.scalars().all()
+        melts = result.scalars().all()
         
-        print(f"🔍 [DEBUG] Получено {len(reports)} отчетов из БД")
+        print(f"🔍 [DEBUG] Получено {len(melts)} отчетов из БД")
         
         # Формируем список отчетов для ответа
-        reports_list = []
+        melts_list = []
         
-        for i, report in enumerate(reports):
-            print(f"🔍 [DEBUG] Обрабатываем отчет {i+1}/{len(reports)}: {report.hostname}")
-            print(f"🔍 [DEBUG] - ID: {report.id}")
-            print(f"🔍 [DEBUG] - TCP порты: {report.tcp_ports_count}")
-            print(f"🔍 [DEBUG] - UDP порты: {report.udp_ports_count}")
-            print(f"🔍 [DEBUG] - Соединения: {report.total_connections}")
-            print(f"🔍 [DEBUG] - HTML файл: {report.html_file_path}")
+        for i, melt in enumerate(melts):
+            print(f"🔍 [DEBUG] Обрабатываем отчёт {i+1}/{len(melts)}: {melt.hostname}")
+            print(f"🔍 [DEBUG] - ID: {melt.id}")
+            print(f"🔍 [DEBUG] - TCP порты: {melt.tcp_ports_count}")
+            print(f"🔍 [DEBUG] - UDP порты: {melt.udp_ports_count}")
+            print(f"🔍 [DEBUG] - Соединения: {melt.total_connections}")
+            print(f"🔍 [DEBUG] - HTML файл: {melt.html_file_path}")
             
             # Проверяем существование файла
-            file_exists = bool(report.html_file_path and os.path.exists(report.html_file_path))
+            file_exists = bool(melt.html_file_path and os.path.exists(melt.html_file_path))
             print(f"🔍 [DEBUG] - Файл существует: {file_exists}")
             
-            report_summary = ReportSummary(
-                id=str(report.id),
-                hostname=report.hostname,
-                filename=os.path.basename(report.html_file_path) if report.html_file_path else "unknown.html",
-                generated_at=report.generated_at.isoformat() if report.generated_at else "",
-                os_name=report.os_name or "Неизвестная ОС",
-                total_connections=report.total_connections or 0,
-                file_size=report.file_size or 0,
-                report_hash=report.report_hash,
-                tcp_ports_count=int(report.tcp_ports_count or 0),  # Принудительно int
-                udp_ports_count=int(report.udp_ports_count or 0),  # Принудительно int
+            melt_summary = MeltSummary(
+                id=str(melt.id),
+                hostname=melt.hostname,
+                filename=os.path.basename(melt.html_file_path) if melt.html_file_path else "unknown.html",
+                generated_at=melt.generated_at.isoformat() if melt.generated_at else "",
+                os_name=melt.os_name or "Неизвестная ОС",
+                total_connections=melt.total_connections or 0,
+                file_size=melt.file_size or 0,
+                report_hash=melt.report_hash,
+                tcp_ports_count=int(melt.tcp_ports_count or 0),  # Принудительно int
+                udp_ports_count=int(melt.udp_ports_count or 0),  # Принудительно int
                 file_exists=file_exists,
-                processing_status=report.processing_status or 'unknown'
+                processing_status=melt.processing_status or 'unknown'
             )
             
-            reports_list.append(report_summary)
+            melts_list.append(melt_summary)
             print(f"🔍 [DEBUG] ✅ Отчет {i+1} добавлен в список")
         
-        print(f"📋 [SUCCESS] Возвращено {len(reports_list)} отчетов из базы данных")
+        print(f"📋 [SUCCESS] Возвращено {len(melts_list)} отчетов из базы данных")
         
         # Если БД пуста, переходим к fallback
-        if len(reports_list) == 0:
+        if len(melts_list) == 0:
             print(f"⚠️ [WARNING] База данных пуста, переходим к fallback парсингу файлов...")
             raise Exception("База данных пуста, нужен fallback")
         
-        return ReportsList(
-            reports=reports_list,
-            total=len(reports_list)
+        return MeltsList(
+            melts=melts_list,
+            total=len(melts_list)
         )
         
     except Exception as e:
@@ -147,7 +147,7 @@ async def get_reports(db: AsyncSession = Depends(get_db)):
             from services.html_parser import parse_analyzer_html_file
             
             uploads_dir = "uploads"
-            reports_list = []
+            melts_list = []
             
             print(f"🔍 [FALLBACK] Проверяем папку {uploads_dir}...")
             
@@ -246,7 +246,7 @@ async def get_reports(db: AsyncSession = Depends(get_db)):
                         os_version = parsed_data.get('os_version', '')
                         formatted_os = f"{os_name} {os_version}".strip() if os_name and os_name.lower() not in ['unknown', 'none', 'null', ''] else "Неизвестная ОС"
                         
-                        report_summary = ReportSummary(
+                        melt_summary = MeltSummary(
                             id=filename,  # Используем имя файла как ID
                             hostname=parsed_data.get("hostname", "unknown"),
                             filename=filename,
@@ -261,7 +261,7 @@ async def get_reports(db: AsyncSession = Depends(get_db)):
                             processing_status="processed"
                         )
                         
-                        reports_list.append(report_summary)
+                        melts_list.append(melt_summary)
                         print(f"✅ [FALLBACK] Файл {filename} успешно обработан")
                         
                     except Exception as parse_error:
@@ -273,11 +273,11 @@ async def get_reports(db: AsyncSession = Depends(get_db)):
             else:
                 print(f"❌ [FALLBACK] Папка {uploads_dir} не существует")
             
-            print(f"📋 [FALLBACK] Возвращено {len(reports_list)} отчетов из файловой системы")
+            print(f"📋 [FALLBACK] Возвращено {len(melts_list)} отчетов из файловой системы")
             
-            return ReportsList(
-                reports=reports_list,
-                total=len(reports_list)
+            return MeltsList(
+                melts=melts_list,
+                total=len(melts_list)
             )
             
         except Exception as fallback_error:
@@ -290,7 +290,7 @@ async def get_reports(db: AsyncSession = Depends(get_db)):
             )
 
 @api_router.post("/reports/upload")
-async def upload_report(
+async def melt(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db)
 ):
@@ -306,7 +306,7 @@ async def upload_report(
     try:
         # Импортируем необходимые модули
         from services.html_parser import parse_analyzer_html_file
-        from models.report import SystemReport
+        from models.report import Melt
         from sqlalchemy import select
         
         # Создаем папку uploads если её нет
@@ -366,34 +366,34 @@ async def upload_report(
                 )
         
         # Проверяем наличие отчета с таким же хешем в базе данных
-        existing_report = None
-        replaced_report_info = None
+        existing_melt = None
+        replaced_melt_info = None
         
         try:
-            stmt = select(SystemReport).where(SystemReport.report_hash == report_hash)
+            stmt = select(Melt).where(Melt.report_hash == report_hash)
             result = await db.execute(stmt)
-            existing_report = result.scalar_one_or_none()
-            
-            if existing_report:
-                print(f"🔍 Найден существующий отчет с хешем {report_hash}: ID={existing_report.id}")
-                replaced_report_info = {
-                    'id': str(existing_report.id),
-                    'hostname': existing_report.hostname,
-                    'generated_at': existing_report.generated_at.isoformat() if existing_report.generated_at else None,
-                    'file_path': existing_report.html_file_path,
-                    'report_hash': existing_report.report_hash
+            existing_melt = result.scalar_one_or_none()
+
+            if existing_melt:
+                print(f"🔍 Найден существующий отчёт с хешем {report_hash}: ID={existing_melt.id}")
+                replaced_melt_info = {
+                    'id': str(existing_melt.id),
+                    'hostname': existing_melt.hostname,
+                    'generated_at': existing_melt.generated_at.isoformat() if existing_melt.generated_at else None,
+                    'file_path': existing_melt.html_file_path,
+                    'report_hash': existing_melt.report_hash
                 }
                 
                 # Удаляем старый файл отчета если он существует
-                if existing_report.html_file_path and os.path.exists(existing_report.html_file_path):
+                if existing_melt.html_file_path and os.path.exists(existing_melt.html_file_path):
                     try:
-                        os.remove(existing_report.html_file_path)
-                        print(f"🗑️ Удален старый файл отчета: {existing_report.html_file_path}")
+                        os.remove(existing_melt.html_file_path)
+                        print(f"🗑️ Удалён старый файл отчёта: {existing_melt.html_file_path}")
                     except Exception as e:
                         print(f"⚠️ Ошибка удаления старого файла: {e}")
                 
                 # Удаляем запись из базы данных (каскадно удалятся связанные записи)
-                await db.delete(existing_report)
+                await db.delete(existing_melt)
                 await db.commit()
                 print(f"🗑️ Удален существующий отчет из БД")
             
@@ -500,8 +500,8 @@ async def upload_report(
             # Сериализуем parsed_data для JSON поля
             serialized_parsed_data = serialize_datetime_for_json(parsed_data)
             
-            # Создаем новую запись отчета используя ID из HTML если есть
-            new_report = SystemReport(
+            # Создаем новую запись Melt используя ID из HTML если есть
+            new_melt = Melt(
                 id=uuid.UUID(report_id) if report_id else None,  # Используем ID из HTML если есть
                 report_hash=report_hash,
                 hostname=hostname,
@@ -528,11 +528,11 @@ async def upload_report(
                 processing_status="processed"
             )
             
-            db.add(new_report)
+            db.add(new_melt)
             await db.flush()  # Получаем ID без коммита
             
             # Сохраняем связанные данные (соединения, порты) в той же транзакции
-            report_db_id = new_report.id
+            melt_db_id = new_melt.id
             
             # Сохраняем соединения в БД
             connections_raw = parsed_data.get("connections", [])
@@ -568,7 +568,7 @@ async def upload_report(
                                 connection_type = 'unknown'
                         
                         db_connection = NetworkConnection(
-                            report_id=report_db_id,
+                            report_id=melt_db_id,
                             connection_type=connection_type,
                             local_address=conn.get('local_address', '')[:100],  # Ограничиваем длину
                             remote_address=conn.get('remote_address', '')[:100],
@@ -597,7 +597,7 @@ async def upload_report(
                         port_number = port_info.get('port_number') if isinstance(port_info, dict) else port_info
                         if isinstance(port_number, int):
                             db_port = NetworkPort(
-                                report_id=report_db_id,
+                                report_id=melt_db_id,
                                 port_number=port_number,
                                 protocol='tcp',
                                 description=port_info.get('description', f'TCP порт {port_number}')[:500] if isinstance(port_info, dict) else f'TCP порт {port_number}',
@@ -615,7 +615,7 @@ async def upload_report(
                         port_number = port_info.get('port_number') if isinstance(port_info, dict) else port_info
                         if isinstance(port_number, int):
                             db_port = NetworkPort(
-                                report_id=report_db_id,
+                                report_id=melt_db_id,
                                 port_number=port_number,
                                 protocol='udp',
                                 description=port_info.get('description', f'UDP порт {port_number}')[:500] if isinstance(port_info, dict) else f'UDP порт {port_number}',
@@ -629,32 +629,32 @@ async def upload_report(
             
             # Коммитим все данные вместе
             await db.commit()
-            await db.refresh(new_report)
-            
-            final_report_id = str(new_report.id)
-            print(f"✅ Отчет и связанные данные сохранены в БД с ID: {final_report_id}")
+            await db.refresh(new_melt)
+
+            final_melt_id = str(new_melt.id)
+            print(f"✅ Отчёт и связанные данные сохранены в БД с ID: {final_melt_id}")
             
         except Exception as db_save_error:
             print(f"⚠️ Ошибка сохранения в БД: {db_save_error}")
             # Если не удалось сохранить в БД, все равно возвращаем успех для файла
-            final_report_id = report_id if report_id else report_hash  # Используем ID из HTML или хеш
+            final_melt_id = report_id if report_id else report_hash  # Используем ID из HTML или хеш
         
         # Формируем ответ
         response_data = {
-            "message": f"Отчет успешно загружен{' (заменен дубликат)' if existing_report or removed_files_count > 0 else ''}",
-            "report_id": final_report_id,
+            "message": f"Отчёт успешно загружен{' (заменён дубликат)' if existing_melt or removed_files_count > 0 else ''}",
+            "report_id": final_melt_id,
             "report_hash": report_hash,
             "filename": file.filename,
             "saved_as": hash_based_filename,
             "file_size": len(content),
             "hostname": hostname,
             "connections_count": parsed_data.get("total_connections", 0),
-            "is_replacement": bool(existing_report or removed_files_count > 0),
+            "is_replacement": bool(existing_melt or removed_files_count > 0),
             "deduplication_method": "html_metadata" if parsed_data.get("report_hash") else "generated_hash"
         }
         
-        if existing_report:
-            response_data["replaced_report"] = replaced_report_info
+        if existing_melt:
+            response_data["replaced_melt"] = replaced_melt_info
             
         if removed_files_count > 0:
             response_data["removed_file_duplicates"] = removed_files_count
@@ -776,36 +776,36 @@ async def get_report_details(report_id: str, db: AsyncSession = Depends(get_db))
         # Импорты
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
-        from models.report import SystemReport
+        from models.report import Melt
         
-        # Загружаем отчет с связанными данными
-        db_report = None
+        # Загружаем Melt с связанными данными
+        db_melt = None
         
         # Сначала проверяем, является ли report_id валидным UUID
         try:
             import uuid
             uuid_obj = uuid.UUID(report_id)
             # Это валидный UUID - ищем в БД
-            stmt = select(SystemReport).options(
-                selectinload(SystemReport.connections),
-                selectinload(SystemReport.ports),
-                selectinload(SystemReport.remote_hosts),
-                selectinload(SystemReport.network_interfaces)
-            ).where(SystemReport.id == uuid_obj)
+            stmt = select(Melt).options(
+                selectinload(Melt.connections),
+                selectinload(Melt.ports),
+                selectinload(Melt.remote_hosts),
+                selectinload(Melt.network_interfaces)
+            ).where(Melt.id == uuid_obj)
             
             result = await db.execute(stmt)
-            db_report = result.scalar_one_or_none()
+            db_melt = result.scalar_one_or_none()
             
-            if db_report:
-                print(f"✅ Отчет найден в БД по UUID: {report_id}")
+            if db_melt:
+                print(f"✅ Отчёт найден в БД по UUID: {report_id}")
             else:
-                print(f"❌ Отчет с UUID {report_id} не найден в БД")
+                print(f"❌ Отчёт с UUID {report_id} не найден в БД")
                 
         except ValueError:
             # Это не UUID - пропускаем поиск в БД
             print(f"🔍 {report_id} не является UUID, ищем как имя файла")
         
-        if not db_report:
+        if not db_melt:
             print(f"❌ Report not found in database: {report_id}")
             # Если не найден в БД, попробуем поискать файл напрямую
             uploads_dir = "uploads"
@@ -837,11 +837,11 @@ async def get_report_details(report_id: str, db: AsyncSession = Depends(get_db))
         else:
             # Используем filename из БД
             uploads_dir = "uploads"
-            if db_report.html_file_path:
-                file_path = db_report.html_file_path
+            if db_melt.html_file_path:
+                file_path = db_melt.html_file_path
             else:
                 # Пробуем построить путь из report_hash
-                filename = f"report_{db_report.report_hash}.html"
+                filename = f"report_{db_melt.report_hash}.html"
                 file_path = os.path.join(uploads_dir, filename)
         
         if not os.path.exists(file_path):
@@ -854,26 +854,26 @@ async def get_report_details(report_id: str, db: AsyncSession = Depends(get_db))
         print(f"✅ Found HTML file: {file_path}")
         
         # Используем данные из БД если есть, иначе парсим HTML
-        if db_report:
-            hostname = db_report.hostname
-            os_name = db_report.os_name or "unknown"
-            os_version = db_report.os_version or ""
-            generated_at = db_report.generated_at.isoformat() if db_report.generated_at else datetime.now().isoformat()
-            report_hash = db_report.report_hash or ""
-            file_size = db_report.file_size or os.path.getsize(file_path)
+        if db_melt:
+            hostname = db_melt.hostname
+            os_name = db_melt.os_name or "unknown"
+            os_version = db_melt.os_version or ""
+            generated_at = db_melt.generated_at.isoformat() if db_melt.generated_at else datetime.now().isoformat()
+            report_hash = db_melt.report_hash or ""
+            file_size = db_melt.file_size or os.path.getsize(file_path)
             
             # Статистика из БД
-            total_connections = db_report.total_connections or 0
-            tcp_connections = db_report.tcp_connections or 0
-            udp_connections = db_report.udp_connections or 0
-            icmp_connections = db_report.icmp_connections or 0
-            listening_ports = (db_report.tcp_ports_count or 0) + (db_report.udp_ports_count or 0)
-            established_connections = (db_report.incoming_connections or 0) + (db_report.outgoing_connections or 0)
-            total_ports = (db_report.tcp_ports_count or 0) + (db_report.udp_ports_count or 0)
+            total_connections = db_melt.total_connections or 0
+            tcp_connections = db_melt.tcp_connections or 0
+            udp_connections = db_melt.udp_connections or 0
+            icmp_connections = db_melt.icmp_connections or 0
+            listening_ports = (db_melt.tcp_ports_count or 0) + (db_melt.udp_ports_count or 0)
+            established_connections = (db_melt.incoming_connections or 0) + (db_melt.outgoing_connections or 0)
+            total_ports = (db_melt.tcp_ports_count or 0) + (db_melt.udp_ports_count or 0)
             
             # Получаем связанные данные
             connections_data = []
-            for conn in db_report.connections[:50]:  # Первые 50 соединений
+            for conn in db_melt.connections[:50]:  # Первые 50 соединений
                 connections_data.append({
                     "id": str(conn.id),
                     "type": conn.connection_type,
@@ -888,7 +888,7 @@ async def get_report_details(report_id: str, db: AsyncSession = Depends(get_db))
                 })
             
             ports_data = []
-            for port in db_report.ports[:100]:  # Первые 100 портов
+            for port in db_melt.ports[:100]:  # Первые 100 портов
                 ports_data.append({
                     "id": str(port.id),
                     "port_number": port.port_number,
@@ -900,9 +900,9 @@ async def get_report_details(report_id: str, db: AsyncSession = Depends(get_db))
                 })
             
             # Если связанные данные пусты, пытаемся извлечь из raw_data
-            if not connections_data and not ports_data and db_report.raw_data:
+            if not connections_data and not ports_data and db_melt.raw_data:
                 print("📊 Связанные таблицы пусты, извлекаем данные из raw_data...")
-                raw_data = db_report.raw_data
+                raw_data = db_melt.raw_data
                 
                 # Извлекаем соединения из raw_data
                 if raw_data.get("connections"):
@@ -960,7 +960,7 @@ async def get_report_details(report_id: str, db: AsyncSession = Depends(get_db))
                 print(f"📊 Извлечено из raw_data: {len(connections_data)} соединений, {len(ports_data)} портов")
             
             remote_hosts_data = []
-            for host in db_report.remote_hosts[:50]:  # Первые 50 хостов
+            for host in db_melt.remote_hosts[:50]:  # Первые 50 хостов
                 remote_hosts_data.append({
                     "id": str(host.id),
                     "ip_address": host.ip_address,
@@ -973,7 +973,7 @@ async def get_report_details(report_id: str, db: AsyncSession = Depends(get_db))
                 })
             
             network_interfaces_data = []
-            for interface in db_report.network_interfaces[:20]:  # Первые 20 интерфейсов
+            for interface in db_melt.network_interfaces[:20]:  # Первые 20 интерфейсов
                 network_interfaces_data.append({
                     "id": str(interface.id),
                     "name": interface.interface_name,
@@ -1086,23 +1086,23 @@ async def download_report(report_id: str, db: AsyncSession = Depends(get_db)):
         
         # Сначала ищем отчет в базе данных
         from sqlalchemy import select
-        from models.report import SystemReport
+        from models.report import Melt
         
-        result = await db.execute(select(SystemReport).where(SystemReport.id == report_id))
-        db_report = result.scalar_one_or_none()
+        result = await db.execute(select(Melt).where(Melt.id == report_id))
+        db_melt = result.scalar_one_or_none()
         
         file_path = None
         original_filename = None
         
-        if db_report:
+        if db_melt:
             # Используем путь из базы данных
-            if db_report.html_file_path and os.path.exists(db_report.html_file_path):
-                file_path = db_report.html_file_path
+            if db_melt.html_file_path and os.path.exists(db_melt.html_file_path):
+                file_path = db_melt.html_file_path
                 original_filename = os.path.basename(file_path)
                 print(f"✅ Файл найден через БД: {file_path}")
             else:
                 # Пытаемся найти файл по хешу
-                report_hash = db_report.report_hash
+                report_hash = db_melt.report_hash
                 uploads_dir = "uploads"
                 
                 for filename in os.listdir(uploads_dir):
@@ -1226,7 +1226,7 @@ async def delete_report(report_id: str, db: AsyncSession = Depends(get_db)):
     """Удаление отчета по ID или хешу"""
     try:
         from sqlalchemy import select, or_
-        from models.report import SystemReport
+        from models.report import Melt
         import uuid
         
         # Пытаемся найти отчет по ID или по хешу
@@ -1236,13 +1236,13 @@ async def delete_report(report_id: str, db: AsyncSession = Depends(get_db)):
         try:
             uuid_obj = uuid.UUID(report_id)
             # Это UUID - ищем по ID
-            stmt = select(SystemReport).where(SystemReport.id == uuid_obj)
+            stmt = select(Melt).where(Melt.id == uuid_obj)
         except ValueError:
             # Это не UUID - ищем по хешу или имени файла
-            stmt = select(SystemReport).where(
+            stmt = select(Melt).where(
                 or_(
-                    SystemReport.report_hash == report_id,
-                    SystemReport.html_file_path.contains(report_id)
+                    Melt.report_hash == report_id,
+                    Melt.html_file_path.contains(report_id)
                 )
             )
         
@@ -1361,7 +1361,7 @@ async def api_health():
     return {"status": "healthy", "api_version": "v1"}
 
 @api_router.get("/reports/stats/summary")
-async def get_reports_summary(db: AsyncSession = Depends(get_db)):
+async def get_melts_summary(db: AsyncSession = Depends(get_db)):
     """Получение общей статистики по отчетам"""
     try:
         print(f"🔍 [DEBUG] Начинаем подсчет статистики...")
@@ -1369,17 +1369,17 @@ async def get_reports_summary(db: AsyncSession = Depends(get_db)):
         # Сначала пытаемся получить данные из базы данных
         try:
             from sqlalchemy import select, func
-            from models.report import SystemReport
+            from models.report import Melt
             
             print(f"🔍 [DEBUG] Пытаемся получить статистику из БД...")
             
             # Получаем агрегированную статистику из БД
             stmt = select(
-                func.count(SystemReport.id).label('total_reports'),
-                func.sum(SystemReport.total_connections).label('total_connections'),
-                func.sum(SystemReport.tcp_ports_count).label('tcp_ports'),
-                func.sum(SystemReport.udp_ports_count).label('udp_ports'),
-                func.sum(SystemReport.unique_hosts).label('unique_hosts')
+                func.count(Melt.id).label('total_reports'),
+                func.sum(Melt.total_connections).label('total_connections'),
+                func.sum(Melt.tcp_ports_count).label('tcp_ports'),
+                func.sum(Melt.udp_ports_count).label('udp_ports'),
+                func.sum(Melt.unique_hosts).label('unique_hosts')
             )
             
             result = await db.execute(stmt)
@@ -1387,7 +1387,7 @@ async def get_reports_summary(db: AsyncSession = Depends(get_db)):
             
             if stats_row and stats_row.total_reports and stats_row.total_reports > 0:
                 # Есть данные в БД
-                total_reports = int(stats_row.total_reports or 0)
+                total_melts = int(stats_row.total_reports or 0)
                 total_connections = int(stats_row.total_connections or 0)
                 tcp_ports = int(stats_row.tcp_ports or 0)
                 udp_ports = int(stats_row.udp_ports or 0)
@@ -1427,7 +1427,7 @@ async def get_reports_summary(db: AsyncSession = Depends(get_db)):
                 "unique_hosts": 0
             }
         
-        total_reports = 0
+        total_melts = 0
         total_connections = 0
         total_ports = 0
         unique_hosts_set = set()  # Используем set для уникальных хостов
