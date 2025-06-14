@@ -1,0 +1,120 @@
+# ========================================
+# Dockerfile для FastAPI Backend (Production)
+# Для CentOS/RHEL продакшен сред
+# ========================================
+
+# Принимаем аргументы для образов
+ARG BASE_IMAGE=python:3.11-slim
+ARG PIP_INDEX_URL=https://___repository/pypi/simple
+ARG PIP_TRUSTED_HOST=""
+
+# ========================================
+# Базовый образ с зависимостями
+# ========================================
+FROM ${BASE_IMAGE} as base
+
+# Метаданные
+LABEL maintainer="Mikhail Eberil"
+LABEL version="v1.0.0"
+LABEL description="Веб-платформа анализатора системы - Production Build"
+LABEL environment="production"
+LABEL registry=" "
+
+# Переменные окружения для продакшена
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST} \
+    DEBIAN_FRONTEND=noninteractive \
+    ENVIRONMENT=production
+
+# Конфигурация pip для работы с  Artifactory
+RUN mkdir -p /root/.pip && \
+    echo "[global]" > /root/.pip/pip.conf && \
+    echo "index-url = ${PIP_INDEX_URL}" >> /root/.pip/pip.conf && \
+    echo "trusted-host = ${PIP_TRUSTED_HOST}" >> /root/.pip/pip.conf
+
+# Установка системных зависимостей
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libpq-dev \
+    libffi-dev \
+    libssl-dev \
+    curl \
+    ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# ========================================
+# Образ для зависимостей
+# ========================================
+FROM base as dependencies
+
+# Обновление pip из  репозитория
+RUN pip install --upgrade pip setuptools wheel
+
+# Копирование файла зависимостей
+COPY requirements.txt /tmp/requirements.txt
+
+# Установка Python зависимостей из  PyPI
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+# ========================================
+# Продакшен образ
+# ========================================
+FROM base as production
+
+# Создание пользователя для безопасности
+RUN groupadd -r analyzer && useradd -r -g analyzer analyzer
+
+# Создание рабочей директории
+WORKDIR /app
+
+# Копирование установленных зависимостей
+COPY --from=dependencies /usr/local/lib/python3.11/site-packages/ /usr/local/lib/python3.11/site-packages/
+COPY --from=dependencies /usr/local/bin/ /usr/local/bin/
+
+# Создание директорий с правильными правами для CentOS/RHEL
+RUN mkdir -p /app/uploads /app/logs /app/temp && \
+    chown -R analyzer:analyzer /app && \
+    chmod 755 /app/uploads /app/logs /app/temp
+
+# Копирование исходного кода
+COPY --chown=analyzer:analyzer . /app/
+
+# Установка прав доступа для продакшен скриптов
+RUN find /app -name "*.sh" -exec chmod +x {} \; || echo "No shell scripts found"
+
+# Переключение на пользователя (важно для безопасности в продакшне)
+USER analyzer
+
+# Проверка работоспособности с более строгими параметрами для продакшена
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Экспорт порта
+EXPOSE 8000
+
+# Команда запуска для продакшена (несколько воркеров)
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--worker-class", "uvicorn.workers.UvicornWorker"]
+
+# ========================================
+# Образ для staging (промежуточная среда)
+# ========================================
+FROM production as staging
+
+# Дополнительные инструменты для staging
+USER root
+
+RUN pip install --no-cache-dir \
+    pytest \
+    pytest-asyncio \
+    pytest-cov
+
+USER analyzer
+
+# Команда для staging с меньшим количеством воркеров
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"] 

@@ -1,0 +1,59 @@
+# ========================================
+# Dockerfile для Frontend (Production)
+# Для CentOS/RHEL продакшен сред
+# ========================================
+
+# Принимаем аргументы для образов
+ARG BASE_IMAGE=nginx:alpine
+
+# ========================================
+# Продакшен образ
+# ========================================
+FROM ${BASE_IMAGE}
+
+# Метаданные
+LABEL maintainer="Mikhail Eberil"
+LABEL version="v1.0.0"
+LABEL description="Веб-платформа анализатора - Frontend Production Build"
+LABEL environment="production"
+LABEL registry=" "
+
+# Установка дополнительных пакетов для продакшена
+RUN apk add --no-cache \
+    curl \
+    tzdata \
+    && rm -rf /var/cache/apk/*
+
+# Настройка временной зоны для  среды
+ENV TZ=Europe/Moscow
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# Создание необходимых директорий
+RUN mkdir -p /var/log/nginx/analyzer \
+    && mkdir -p /etc/nginx/ssl \
+    && mkdir -p /usr/share/nginx/html \
+    && chown -R nginx:nginx /var/log/nginx/analyzer
+
+# Копирование статических файлов
+COPY --chown=nginx:nginx . /usr/share/nginx/html/
+
+# Копирование продакшн конфигурации nginx
+COPY --chown=nginx:nginx nginx.prod.conf /etc/nginx/nginx.conf
+
+# Настройка прав доступа для продакшена
+RUN chmod 644 /usr/share/nginx/html/index.html \
+    && chmod 644 /etc/nginx/nginx.conf \
+    && chmod 755 /usr/share/nginx/html
+
+# Проверка синтаксиса nginx конфигурации
+RUN nginx -t
+
+# Проверка работоспособности
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost/health || exit 1
+
+# Экспорт портов
+EXPOSE 80 443
+
+# Запуск nginx в foreground режиме для Docker
+CMD ["nginx", "-g", "daemon off;"] 

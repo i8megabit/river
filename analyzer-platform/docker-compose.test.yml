@@ -1,0 +1,164 @@
+# ========================================
+# Docker Compose для локального тестирования веб-платформы анализатора
+# Использует стандартные образы docker.io
+# ========================================
+
+version: '3.8'
+
+services:
+  # ========================================
+  # База данных PostgreSQL
+  # ========================================
+  postgres:
+    image: postgres:15
+    container_name: analyzer-postgres-test
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-analyzer_db}
+      POSTGRES_USER: ${POSTGRES_USER:-analyzer_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_this_password}
+      POSTGRES_INITDB_ARGS: "--auth-host=md5"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data:rw
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:15432:5432"
+    networks:
+      - analyzer-network
+    command: postgres -c 'max_connections=200' -c 'shared_buffers=256MB' -c 'effective_cache_size=1GB'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-analyzer_user} -d ${POSTGRES_DB:-analyzer_db}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========================================
+  # Redis для кэширования
+  # ========================================
+  redis:
+    image: redis:7-alpine
+    container_name: analyzer-redis-test
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - ./data/redis:/data:rw
+    ports:
+      - "127.0.0.1:16379:6379"
+    networks:
+      - analyzer-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========================================
+  # FastAPI Backend
+  # ========================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: analyzer-backend-test:latest
+    container_name: analyzer-backend-test
+    restart: unless-stopped
+    environment:
+      # Database
+      POSTGRES_SERVER: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-analyzer_db}
+      POSTGRES_USER: ${POSTGRES_USER:-analyzer_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_this_password}
+      
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      
+      # Application
+      ENVIRONMENT: development
+      SECRET_KEY: ${SECRET_KEY:-test-secret-key-for-local-development}
+      DEBUG: ${DEBUG:-true}
+      
+      # Server
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 8000
+      
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+    volumes:
+      - ./data/uploads:/app/uploads:rw
+      - ./logs:/app/logs:rw
+    ports:
+      - "127.0.0.1:18000:8000"
+    networks:
+      - analyzer-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========================================
+  # Frontend веб-интерфейс
+  # ========================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: analyzer-frontend-test:latest
+    container_name: analyzer-frontend-test
+    restart: unless-stopped
+    volumes:
+      - ./logs:/var/log/nginx:rw
+    ports:
+      - "8080:80"
+    networks:
+      - analyzer-network
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ========================================
+# Networks
+# ========================================
+networks:
+  analyzer-network:
+    driver: bridge
+    name: analyzer-test-network
+
+# Именованные volumes для персистентности данных
+volumes: {}  # Используем bind mounts вместо named volumes для лучшего контроля 

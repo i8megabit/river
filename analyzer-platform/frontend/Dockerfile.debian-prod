@@ -1,0 +1,117 @@
+# ========================================
+# Dockerfile для Frontend (Production - Debian/Ubuntu)
+# Оптимизирован для Debian/Ubuntu продакшен сред
+# ========================================
+
+# Принимаем аргументы для образов
+ARG BASE_IMAGE=nginx:alpine
+
+# ========================================
+# Продакшен образ
+# ========================================
+FROM ${BASE_IMAGE}
+
+# Метаданные
+LABEL maintainer="Mikhail Eberil"
+LABEL version="v1.0.0"
+LABEL description="Веб-платформа анализатора - Frontend Debian Production Build"
+LABEL environment="production"
+LABEL os="debian-compatible"
+LABEL registry=" "
+
+# Установка дополнительных пакетов для Debian продакшена
+RUN apk add --no-cache \
+    curl \
+    wget \
+    tzdata \
+    ca-certificates \
+    openssl \
+    # Утилиты для мониторинга
+    htop \
+    tree \
+    # Сетевые утилиты
+    net-tools \
+    iputils \
+    && rm -rf /var/cache/apk/*
+
+# Настройка временной зоны для  среды
+ENV TZ=Europe/Moscow
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# Создание необходимых директорий для Debian стиля
+RUN mkdir -p /var/log/nginx/analyzer \
+    && mkdir -p /etc/nginx/ssl \
+    && mkdir -p /etc/nginx/conf.d \
+    && mkdir -p /usr/share/nginx/html \
+    && mkdir -p /var/cache/nginx \
+    && mkdir -p /var/run/nginx \
+    && chown -R nginx:nginx /var/log/nginx/analyzer \
+    && chown -R nginx:nginx /var/cache/nginx \
+    && chown -R nginx:nginx /var/run/nginx
+
+# Копирование статических файлов
+COPY --chown=nginx:nginx . /usr/share/nginx/html/
+
+# Копирование продакшн конфигурации nginx для Debian
+COPY --chown=nginx:nginx nginx.debian-prod.conf /etc/nginx/nginx.conf
+
+# Создание конфигурации для systemd integration
+RUN echo '[Unit]' > /usr/share/nginx/html/analyzer-frontend.service && \
+    echo 'Description=Analyzer Frontend Service' >> /usr/share/nginx/html/analyzer-frontend.service && \
+    echo 'After=network.target' >> /usr/share/nginx/html/analyzer-frontend.service && \
+    echo '' >> /usr/share/nginx/html/analyzer-frontend.service && \
+    echo '[Service]' >> /usr/share/nginx/html/analyzer-frontend.service && \
+    echo 'Type=forking' >> /usr/share/nginx/html/analyzer-frontend.service && \
+    echo 'PIDFile=/var/run/nginx.pid' >> /usr/share/nginx/html/analyzer-frontend.service && \
+    echo 'ExecStartPre=/usr/sbin/nginx -t' >> /usr/share/nginx/html/analyzer-frontend.service && \
+    echo 'ExecStart=/usr/sbin/nginx' >> /usr/share/nginx/html/analyzer-frontend.service && \
+    echo 'ExecReload=/bin/kill -s HUP $MAINPID' >> /usr/share/nginx/html/analyzer-frontend.service && \
+    echo 'KillMode=mixed' >> /usr/share/nginx/html/analyzer-frontend.service && \
+    echo '' >> /usr/share/nginx/html/analyzer-frontend.service && \
+    echo '[Install]' >> /usr/share/nginx/html/analyzer-frontend.service && \
+    echo 'WantedBy=multi-user.target' >> /usr/share/nginx/html/analyzer-frontend.service
+
+# Настройка прав доступа для Debian продакшена
+RUN chmod 644 /usr/share/nginx/html/index.html \
+    && chmod 644 /etc/nginx/nginx.conf \
+    && chmod 755 /usr/share/nginx/html \
+    && chmod 644 /usr/share/nginx/html/analyzer-frontend.service
+
+# Создание health check endpoint
+RUN echo "healthy" > /usr/share/nginx/html/health
+
+# Проверка синтаксиса nginx конфигурации
+RUN nginx -t
+
+# Создание скрипта для логирования в Debian стиле
+RUN echo '#!/bin/sh' > /docker-entrypoint.d/debian-logging.sh && \
+    echo 'echo "Starting Analyzer Frontend in Debian production mode..."' >> /docker-entrypoint.d/debian-logging.sh && \
+    echo 'echo "Nginx version: $(nginx -v 2>&1)"' >> /docker-entrypoint.d/debian-logging.sh && \
+    echo 'echo "Configuration test: $(nginx -t 2>&1)"' >> /docker-entrypoint.d/debian-logging.sh && \
+    echo 'echo "Ready to serve requests"' >> /docker-entrypoint.d/debian-logging.sh && \
+    chmod +x /docker-entrypoint.d/debian-logging.sh
+
+# Создание конфигурационного файла для мониторинга
+RUN echo 'server {' > /etc/nginx/conf.d/monitoring.conf && \
+    echo '    listen 8081;' >> /etc/nginx/conf.d/monitoring.conf && \
+    echo '    server_name localhost;' >> /etc/nginx/conf.d/monitoring.conf && \
+    echo '    location /nginx_status {' >> /etc/nginx/conf.d/monitoring.conf && \
+    echo '        stub_status on;' >> /etc/nginx/conf.d/monitoring.conf && \
+    echo '        access_log off;' >> /etc/nginx/conf.d/monitoring.conf && \
+    echo '        allow 127.0.0.1;' >> /etc/nginx/conf.d/monitoring.conf && \
+    echo '        allow 10.0.0.0/8;' >> /etc/nginx/conf.d/monitoring.conf && \
+    echo '        allow 172.16.0.0/12;' >> /etc/nginx/conf.d/monitoring.conf && \
+    echo '        allow 192.168.0.0/16;' >> /etc/nginx/conf.d/monitoring.conf && \
+    echo '        deny all;' >> /etc/nginx/conf.d/monitoring.conf && \
+    echo '    }' >> /etc/nginx/conf.d/monitoring.conf && \
+    echo '}' >> /etc/nginx/conf.d/monitoring.conf
+
+# Проверка работоспособности для Debian
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost/health || exit 1
+
+# Экспорт портов
+EXPOSE 80 443 8081
+
+# Запуск nginx в foreground режиме для Docker
+CMD ["nginx", "-g", "daemon off;"] 

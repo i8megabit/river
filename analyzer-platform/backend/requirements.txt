@@ -1,0 +1,69 @@
+# ========================================
+# Веб-платформа анализатора - Backend зависимости
+# FastAPI + SQLAlchemy + PostgreSQL + Redis
+# ========================================
+
+# Основной web framework
+fastapi==0.115.12
+uvicorn==0.34.2
+
+# База данных
+sqlalchemy[asyncio]==2.0.41
+asyncpg==0.30.0
+psycopg2-binary==2.9.9
+alembic==1.16.1
+
+# Redis и кэширование
+redis==5.2.1
+
+# Валидация данных
+pydantic==2.11.5
+pydantic-settings==2.9.1
+email-validator==2.2.0
+
+# Асинхронные операции
+aiofiles==24.1.0
+httpx==0.28.1
+
+# Парсинг HTML
+beautifulsoup4==4.12.3
+lxml==5.3.0
+
+# Работа с датами
+python-dateutil==2.9.0.post0
+
+# Логирование
+structlog==24.4.0
+
+# Безопасность
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.20
+
+# Мониторинг и метрики
+prometheus-client==0.21.1
+
+# Работа с файлами
+python-magic==0.4.27
+pillow==11.1.0
+
+# Утилиты
+click==8.1.8
+python-dotenv==1.1.0
+pyyaml==6.0.2
+
+# Тестирование (dev)
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+httpx==0.28.1  # для тестирования API
+
+# Разработка
+black==24.10.0
+isort==5.13.2
+flake8==7.1.1
+mypy==1.13.0
+
+# Дополнительные утилиты
+rich==13.9.4
+typer==0.13.1 
