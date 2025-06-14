@@ -15,7 +15,7 @@ import uuid
 from core.database import Base
 
 
-class SystemReport(Base):
+class Melt(Base):
     """
     Основная модель отчета системы - соответствует структуре HTML отчета
     """
@@ -78,7 +78,7 @@ class SystemReport(Base):
     network_interfaces = relationship("NetworkInterface", back_populates="report", cascade="all, delete-orphan")
     
     def __repr__(self):
-        return f"<SystemReport(hostname='{self.hostname}', generated_at='{self.generated_at}')>"
+        return f"<Melt(hostname='{self.hostname}', generated_at='{self.generated_at}')>"
 
 
 class NetworkConnection(Base):
@@ -109,7 +109,7 @@ class NetworkConnection(Base):
     bytes_received = Column(Integer, default=0)
     
     # Связь с отчетом
-    report = relationship("SystemReport", back_populates="connections")
+    report = relationship("Melt", back_populates="connections")
     
     def __repr__(self):
         return f"<NetworkConnection(local='{self.local_address}', remote='{self.remote_address}')>"
@@ -135,7 +135,7 @@ class NetworkPort(Base):
     process_name = Column(String(255))
     
     # Связь с отчетом
-    report = relationship("SystemReport", back_populates="ports")
+    report = relationship("Melt", back_populates="ports")
     
     def __repr__(self):
         return f"<NetworkPort(port={self.port_number}, protocol='{self.protocol}')>"
@@ -165,7 +165,7 @@ class RemoteHost(Base):
     is_local = Column(Boolean, default=False)
     
     # Связь с отчетом
-    report = relationship("SystemReport", back_populates="remote_hosts")
+    report = relationship("Melt", back_populates="remote_hosts")
     
     def __repr__(self):
         return f"<RemoteHost(ip='{self.ip_address}', hostname='{self.hostname}')>"
@@ -190,7 +190,7 @@ class ChangeHistory(Base):
     change_details = Column(JSON)  # Детали изменений
     
     # Связь с отчетом
-    report = relationship("SystemReport", back_populates="change_history")
+    report = relationship("Melt", back_populates="change_history")
     
     def __repr__(self):
         return f"<ChangeHistory(measurement_id={self.measurement_id}, timestamp='{self.change_timestamp}')>"
@@ -221,7 +221,7 @@ class NetworkInterface(Base):
     ip_addresses = Column(ARRAY(String))  # Список IP адресов
     
     # Связь с отчетом
-    report = relationship("SystemReport", back_populates="network_interfaces")
+    report = relationship("Melt", back_populates="network_interfaces")
     
     def __repr__(self):
         return f"<NetworkInterface(name='{self.interface_name}', packets_in={self.packets_in})>"
@@ -248,7 +248,7 @@ class ReportFile(Base):
     processed_at = Column(DateTime)
     
     # Связь с отчетом
-    report = relationship("SystemReport", foreign_keys=[report_id])
+    report = relationship("Melt", foreign_keys=[report_id])
     
     def __repr__(self):
         return f"<ReportFile(filename='{self.filename}', type='{self.file_type}')>"
@@ -258,8 +258,8 @@ class ReportFile(Base):
 from sqlalchemy import Index
 
 # Индексы для частых поисковых запросов
-Index('idx_reports_hostname_date', SystemReport.hostname, SystemReport.generated_at)
-Index('idx_reports_created_at', SystemReport.created_at)
+Index('idx_reports_hostname_date', Melt.hostname, Melt.generated_at)
+Index('idx_reports_created_at', Melt.created_at)
 Index('idx_connections_report_protocol', NetworkConnection.report_id, NetworkConnection.protocol)
 Index('idx_ports_report_port', NetworkPort.report_id, NetworkPort.port_number)
 Index('idx_hosts_report_ip', RemoteHost.report_id, RemoteHost.ip_address)

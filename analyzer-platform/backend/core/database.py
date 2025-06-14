@@ -223,7 +223,7 @@ async def cleanup_old_data(days: int = 90) -> int:
         if not async_session_factory:
             raise RuntimeError("База данных не инициализирована")
         
-        from models.report import SystemReport
+        from models.report import Melt
         from datetime import datetime, timedelta
         
         cutoff_date = datetime.utcnow() - timedelta(days=days)
