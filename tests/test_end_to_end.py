@@ -13,15 +13,17 @@ def has_docker():
 
 @pytest.mark.skipif(not has_docker(), reason="Docker is not available")
 def test_run_river_and_upload_report(tmp_path):
-    # Build and run River using existing install script
-    install_script = os.path.join(os.path.dirname(__file__), "..", "analyzer-platform", "install-test.sh")
+    # собираем и запускаем River через install-test.sh
+    install_script = os.path.join(
+        os.path.dirname(__file__), "..", "analyzer-platform", "install-test.sh"
+    )
     subprocess.run(
         ["bash", install_script],
         check=False,
         cwd=os.path.dirname(install_script),
     )
 
-    # Wait for backend health
+    # ждём, пока поднимется backend
     timeout = int(os.environ.get("RIVER_TEST_TIMEOUT", "30"))
     for _ in range(timeout):
         try:
@@ -32,9 +34,9 @@ def test_run_river_and_upload_report(tmp_path):
             pass
         time.sleep(2)
     else:
-        pytest.fail("Backend health check failed")
+        pytest.fail("Не удалось дождаться запуска backend")
 
-    # Generate a dummy report as Glacier would produce
+    # готовим простой отчёт, как будто его создал Glacier
     report_path = tmp_path / "dummy_report.html"
     report_path.write_text(
         """
@@ -50,7 +52,7 @@ def test_run_river_and_upload_report(tmp_path):
         """
     )
 
-    # Upload the report
+    # отправляем отчёт
     with report_path.open("rb") as fh:
         upload_resp = requests.post(
             "http://localhost:18000/api/v1/reports/upload",
@@ -61,18 +63,18 @@ def test_run_river_and_upload_report(tmp_path):
     report_id = upload_data.get("id")
     assert report_id
 
-    # Verify report exists
+    # проверяем, что отчёт появился в списке
     list_resp = requests.get("http://localhost:18000/api/v1/reports")
     assert list_resp.status_code == 200
     reports = list_resp.json().get("reports", [])
     assert any(r.get("id") == report_id for r in reports)
 
-    # Download and inspect report content
+    # скачиваем отчёт и смотрим содержимое
     dl_resp = requests.get(f"http://localhost:18000/api/v1/reports/{report_id}/download")
     assert dl_resp.status_code == 200
     assert "<html" in dl_resp.text.lower()
 
-    # Tear down containers
+    # останавливаем контейнеры
     subprocess.run([
         "docker", "compose", "-f", "analyzer-platform/docker-compose.test.yml", "down", "--volumes", "--remove-orphans"
     ])
