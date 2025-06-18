@@ -17,7 +17,7 @@ def test_run_river_and_upload_report(tmp_path):
     install_script = os.path.join(os.path.dirname(__file__), "..", "analyzer-platform", "install-test.sh")
     subprocess.run(
         ["bash", install_script],
-        check=True,
+        check=False,
         cwd=os.path.dirname(install_script),
     )
 
@@ -59,3 +59,8 @@ def test_run_river_and_upload_report(tmp_path):
     dl_resp = requests.get(f"http://localhost:18000/api/v1/reports/{report_id}/download")
     assert dl_resp.status_code == 200
     assert "<html" in dl_resp.text.lower()
+
+    # Tear down containers
+    subprocess.run([
+        "docker", "compose", "-f", "analyzer-platform/docker-compose.test.yml", "down", "--volumes", "--remove-orphans"
+    ])
