@@ -36,7 +36,19 @@ def test_run_river_and_upload_report(tmp_path):
 
     # Generate a dummy report as Glacier would produce
     report_path = tmp_path / "dummy_report.html"
-    report_path.write_text("<html><body><h1>dummy</h1></body></html>")
+    report_path.write_text(
+        """
+        <html>
+            <head>
+                <meta name="analyzer-report-hash" content="abc123" />
+                <meta name="analyzer-report-id" content="1" />
+                <meta name="analyzer-hostname" content="localhost" />
+                <meta name="analyzer-generated-at" content="2024-01-01T00:00:00Z" />
+            </head>
+            <body><h1>dummy</h1></body>
+        </html>
+        """
+    )
 
     # Upload the report
     with report_path.open("rb") as fh:
